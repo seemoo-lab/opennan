@@ -5,21 +5,21 @@ OpenNAN is an open source implementation of a Neighbor Awareness Networking stac
 
 ## Requirements
 
-To use NAN, you will need a Wi-Fi card supporting active monitor mode with frame injection.
+To use OpenNAN, you will need a Wi-Fi card supporting active monitor mode with frame injection.
 
 
 ## Build
 
-The project is build using CMake. To build the project, simply clone this repositry in `<NANDIR>` and run
+The project is build using CMake. To build the project, simply clone this repositry in `<OpenNAN>` and run
 ```sh
-cd <NANDIR>
+cd <OpenNAN>
 mkdir build
 cd build
 cmake ..
 make
 ```
 
-NAN requires `libpcap` for frame injection and reception and `libev` for event handling which have to be installed on the target system.
+OpenNAN requires `libpcap` for frame injection and reception and `libev` for event handling which have to be installed on the target system.
 On Debian Linux, install all dependencies via
 ```sh
 apt install libpcap-dev libev-dev libnl-3-dev libnl-genl-3-dev libnl-route-3-dev
@@ -31,7 +31,7 @@ apt install libpcap-dev libev-dev libnl-3-dev libnl-genl-3-dev libnl-route-3-dev
 Simply run
 
 ```sh
-<NANDIR>/build/daemon/nan -i <WLAN_IFACE>
+<OpenNAN>/build/daemon/nan -i <WLAN_IFACE>
 ```
 
 You may increase the log level with `-v` and `-vv`. For other options, have a look at `daemon/nan.c`.
@@ -66,7 +66,15 @@ For more detailed info on functions consult the corresponding header file.
 
 ## Current Limitations/TODOs
 
+## Contact and authors
 
-Thanks to
-**Milan Stute** ([email](mailto:mstute@seemoo.tu-darmstadt.de), [web](https://seemoo.de/mstute))
-for providing an AWDL implementation that was of great use during the development of this project.
+- **Lars Almon** ([email](mailto:lalmon@seemoo.tu-darmstadt.de), [web](https://seemoo.de/lalmon))
+- **Arno Krause** ([email](mailto:akrause@seemoo.tu-darmstadt.de))
+- **Oliver Fietze** ([email](mailto:ofietze@seemoo.tu-darmstadt.de))
+
+## Publications
+- Lars Almon, Arno Krause, Oliver Fietze, Matthias Hollick. **Desynchronization and MitM Attacks Against Neighbor Awareness Networking Using OpenNAN** _Proceedings on 19th ACM International Symposium on Mobility Management and Wireless Access (MobiWac'21)_, 2021. [📄 Paper](https://dl.acm.org/doi/abs/10.1145/3479241.3486689)
+
+## Acknowledgements
+We would like to thanks **Milan Stute** ([email](mailto:mstute@seemoo.tu-darmstadt.de), [web](https://seemoo.de/mstute))
+for providing [Open Wirless Link](https://owlink.org/). An open source AWDL implementation via that was of great use during the development of OpenNAN.
