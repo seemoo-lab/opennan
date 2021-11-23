@@ -1,4 +1,4 @@
-# Neighbour Awareness Networking
+# OpenNAN - A Neighbour Awareness Networking stack for Linux
 
 OpenNAN is an open source implementation of a Neighbor Awareness Networking stack for Linux written in C.
 
