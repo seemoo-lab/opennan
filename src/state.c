@@ -15,8 +15,16 @@ void init_nan_state(struct nan_state *state, const char *hostname,
     nan_cluster_state_init(&state->cluster);
     nan_sync_state_init(&state->sync, addr);
     nan_peer_state_init(&state->peers);
-    nan_timer_state_init(&state->timer, now_usec);
+    nan_timer_state_init(&state->timer, now_usec, NULL);
     nan_event_state_init(&state->events);
     nan_service_state_init(&state->services);
     ieee80211_init_state(&state->ieee80211);
+
+    state->desync = false;
+    state->desync_offset_tu = 0;
+    state->max_send_old_count = 5;
+
+    state->start_time = now_usec;
+    state->offset_time = now_usec;
+    state->desync_time = now_usec;
 }

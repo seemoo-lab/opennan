@@ -42,6 +42,14 @@ struct nan_state
     struct nan_service_state services;
     // Needed information for IEEE 802.11 frames
     struct ieee80211_state ieee80211;
+
+    bool desync;
+    int desync_offset_tu;
+    int max_send_old_count;
+
+    uint64_t start_time;
+    uint64_t desync_time;
+    uint64_t offset_time;
 };
 
 /** 

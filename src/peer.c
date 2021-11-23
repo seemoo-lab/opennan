@@ -49,6 +49,18 @@ struct nan_peer *nan_peer_new(const struct ether_addr *addr, const struct ether_
     moving_average_init(peer->rssi_average_state, peer->rssi_average,
                         signed char, PEER_RSSI_BUFFER_SIZE);
 
+    peer->total_timer_shift_tu = 0;
+    peer->old_timer_send_count = -1;
+    peer->max_send_old_count = MAX_SEND_COUNT;
+    peer->last_beacon_time = 0;
+    peer->last_follow_up_time = 0;
+
+    peer->frame_buffer = circular_buf_init(10);
+    peer->forward = false;
+    peer->modify = false;
+    peer->publisher = false;
+    peer->count_sync = 0;
+
     return peer;
 }
 
@@ -61,7 +73,7 @@ enum peer_status nan_peer_get(struct nan_peer_state *state, const struct ether_a
 }
 
 enum peer_status nan_peer_add(struct nan_peer_state *state, const struct ether_addr *addr,
-                              const struct ether_addr *cluster_id, uint64_t now_usec)
+                              const struct ether_addr *cluster_id, const uint64_t now_usec)
 {
     struct nan_peer *peer = NULL;
     int status = nan_peer_get(state, addr, &peer);
@@ -86,9 +98,9 @@ enum peer_status nan_peer_add(struct nan_peer_state *state, const struct ether_a
 
     if (!ether_addr_equal(&peer->cluster_id, cluster_id))
     {
+        peer->cluster_id = *cluster_id;
         log_debug("Updated cluster id of peer %s to %s",
                   ether_addr_to_string(&peer->addr), ether_addr_to_string(&peer->cluster_id));
-        peer->cluster_id = *cluster_id;
     }
 
     return PEER_UPDATE;

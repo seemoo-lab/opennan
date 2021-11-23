@@ -113,10 +113,7 @@ int ieee80211_parse_radiotap_header(struct buf *frame, signed char *rssi, uint8_
     if (err != -ENOENT)
         return RX_UNEXPECTED_FORMAT;
 
-    if (buf_advance(frame, le16toh(header->it_len)) < 0)
-        return RX_TOO_SHORT;
-
-    return RX_OK;
+    return buf_advance(frame, le16toh(header->it_len));
 }
 
 int ieee80211_parse_fcs(struct buf *frame, const uint8_t radiotap_flags)

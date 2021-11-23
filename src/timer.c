@@ -6,15 +6,23 @@
 #include "utils.h"
 #include "log.h"
 
-void nan_timer_state_init(struct nan_timer_state *state, const uint64_t now_usec)
+void nan_timer_state_init(struct nan_timer_state *state, const uint64_t now_usec,
+                          moving_average_t *moving_average_state)
 {
-    state->now_usec = now_usec;
     state->base_time_usec = now_usec;
     state->last_discovery_beacon_usec = 0;
     state->warmup_done = false;
     state->initial_scan_done = true;
-
-    moving_average_init(state->average_error_state, state->average_error, int, 32);
+    
+    if (moving_average_state)
+    {
+        state->average_error_state = moving_average_state;
+    }
+    else
+    {
+        state->average_error_state = malloc(sizeof(moving_average_t));
+        moving_average_init((*state->average_error_state), state->average_error, int, 32);
+    }
 }
 
 void nan_timer_set_now_usec(struct nan_timer_state *state, uint64_t now_usec)
@@ -46,7 +54,7 @@ void nan_timer_sync_time(struct nan_timer_state *state, const uint64_t now_usec,
 {
     long diff_usec = (long)nan_timer_get_synced_time_usec(state, now_usec) - timestamp;
     long diff_tu = USEC_TO_TU(diff_usec);
-    if (abs(diff_tu) > 3)
+    if (abs(diff_tu) > 100)
         log_debug("High timer diff %ld usec (%ld tu)", diff_usec, diff_tu);
 
     state->base_time_usec += diff_usec;
@@ -57,12 +65,16 @@ void nan_timer_sync_error(struct nan_timer_state *state, const uint64_t now_usec
     int error_usec = (int)nan_timer_get_synced_time_usec(state, now_usec) - timestamp;
 
     // Skip too large differences
-    if (abs(error_usec) > TU_TO_USEC(NAN_DW_INTERVAL_TU)) {
-        log_debug("Error too large: %u", error_usec);
+    if (abs(error_usec) > TU_TO_USEC(NAN_DW_INTERVAL_TU))
+    {
+        log_warn("Error too large: %u", error_usec);
         return;
     }
 
-    moving_average_add(state->average_error_state, state->average_error, int, error_usec);
+    if (state->average_error_state == NULL)
+        return;
+
+    moving_average_add((*state->average_error_state), state->average_error, int, error_usec);
 }
 
 unsigned int nan_time_difference_tu(const uint64_t old_time, const uint64_t new_time)
@@ -155,7 +167,7 @@ void nan_timer_initial_scan_cancel(struct nan_timer_state *state)
 
 bool nan_timer_can_send_discovery_beacon(const struct nan_timer_state *state, const uint64_t now_usec)
 {
-    return now_usec - state->last_discovery_beacon_usec >= TU_TO_USEC(NAN_DISCOVERY_BEACON_INTERVAL_TU);
+    return now_usec - state->last_discovery_beacon_usec >= TU_TO_USEC(NAN_DISCOVERY_BEACON_INTERVAL_TU / 10);
 }
 
 uint64_t nan_timer_next_discovery_beacon_usec(const struct nan_timer_state *state, const uint64_t now_usec)
@@ -163,7 +175,7 @@ uint64_t nan_timer_next_discovery_beacon_usec(const struct nan_timer_state *stat
     if (nan_timer_can_send_discovery_beacon(state, now_usec))
         return 0;
 
-    return now_usec - state->last_discovery_beacon_usec + TU_TO_USEC(NAN_DISCOVERY_BEACON_INTERVAL_TU);
+    return now_usec - state->last_discovery_beacon_usec + TU_TO_USEC(NAN_DISCOVERY_BEACON_INTERVAL_TU / 10);
 }
 
 void nan_timer_set_last_discovery_beacon_usec(struct nan_timer_state *state, const uint64_t time_usec)

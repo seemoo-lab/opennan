@@ -90,7 +90,7 @@ size_t buf_orig_size(struct buf *buf)
 
 size_t buf_position(struct buf *buf)
 {
-    return abs(buf->data - buf->current);
+    return abs(buf->data - buf->current) - buf->start;
 }
 
 int buf_rest(struct buf *buf)
@@ -128,7 +128,6 @@ int buf_take(struct buf *buf, size_t length)
         buf->error = -1;
         return -1;
     }
-
     buf->end -= length;
     return length;
 }
@@ -136,10 +135,12 @@ int buf_take(struct buf *buf, size_t length)
 void buf_resize(struct buf *buf, size_t size)
 {
     if (buf->owned)
-    {
         buf->data = (const uint8_t *)realloc((void *)buf->data, size);
-    }
+
+    buf->current = (uint8_t *)buf->data;
     buf->size = size;
+    buf->end = size;
+    buf->start = 0;
 }
 
 #define write(type, to)                    \

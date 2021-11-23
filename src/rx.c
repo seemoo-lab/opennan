@@ -262,7 +262,7 @@ int nan_attribute_read_next(struct buf *frame, uint8_t *attribute_id,
  * 
  * @param handle Handle function called for each attribute
  */
-#define NAN_ITERATE_ATTRIBUTES(handle)                                  \
+#define NAN_ITERATE_ATTRIBUTES(frame, handle)                           \
     do                                                                  \
     {                                                                   \
         const uint8_t *attribute_data;                                  \
@@ -344,7 +344,8 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
               ether_addr_to_string(cluster_id));
 
     struct nan_peer *peer = NULL;
-    enum peer_status peer_status = nan_peer_add(&state->peers, peer_address, cluster_id, now_usec);
+    enum peer_status peer_status = nan_peer_add(&state->peers, peer_address,
+                                                cluster_id, now_usec);
     if (peer_status < 0)
     {
         log_warn("nan_beacon: could not add peer: %s (%d)",
@@ -360,6 +361,12 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
         return RX_IGNORE;
     }
 
+    if (peer_status == PEER_ADD)
+    {
+        nan_timer_state_init(&peer->timer, state->timer.base_time_usec, state->timer.average_error_state);
+        nan_timer_state_init(&peer->old_timer, state->timer.base_time_usec, state->timer.average_error_state);
+    }
+
     log_trace("nan_beacon: received %s beacon from peer %s",
               nan_beacon_type_to_string(beacon_type),
               ether_addr_to_string(peer_address));
@@ -367,7 +374,7 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
     if (!nan_timer_initial_scan_done(&state->timer, now_usec))
         nan_timer_initial_scan_cancel(&state->timer);
 
-    NAN_ITERATE_ATTRIBUTES({
+    NAN_ITERATE_ATTRIBUTES(frame, {
         switch (attribute_id)
         {
         case MASTER_INDICATION_ATTRIBUTE:
@@ -407,6 +414,8 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
     nan_update_master_preference(&state->sync, peer, now_usec);
     nan_check_master_candidate(&state->sync, peer);
 
+    peer->last_beacon_time = now_usec;
+
     bool is_new_cluster = !ether_addr_equal(cluster_id, &state->cluster.cluster_id);
     bool in_initial_cluster = list_len(state->peers.peers) == 1 && peer_status == PEER_ADD;
     if (is_new_cluster || in_initial_cluster)
@@ -426,22 +435,32 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
             log_trace("Found cluster with lower cluster grade: %s", ether_addr_to_string(cluster_id));
         }
     }
+    else if (state->desync)
+    {
+        if (beacon_type == NAN_SYNC_BEACON)
+            peer->count_sync++;
+        
+        nan_timer_sync_error(&peer->timer, now_usec, timestamp);
+
+        nan_timer_sync_time(&peer->old_timer, now_usec, timestamp);
+        peer->old_timer_send_count = 0;
+
+        log_debug("Peer %s not in sync", ether_addr_to_string(&peer->addr));
+    }
     else if (beacon_type == NAN_SYNC_BEACON)
     {
-        uint64_t last_anchor_master = state->sync.anchor_master_rank;
+        if (nan_is_anchor_master(&state->sync, &peer->addr))
+            nan_timer_sync_time(&state->timer, now_usec, timestamp);
+        else
+            nan_timer_sync_error(&state->timer, now_usec, timestamp);
 
         uint64_t synced_time_tu = nan_timer_get_synced_time_tu(&state->timer, now_usec);
         nan_anchor_master_selection(&state->sync, peer, synced_time_tu);
-
-        // Sync time, if new anchor master
-        if (state->sync.anchor_master_rank != last_anchor_master)
-        {
-            nan_timer_sync_time(&state->timer, now_usec, timestamp);
-        }
-        else if (!nan_is_anchor_master_self(&state->sync))
-        {
+    }
+    else if (beacon_type == NAN_DISCOVERY_BEACON)
+    {
+        if (!nan_is_anchor_master(&state->sync, &peer->addr))
             nan_timer_sync_error(&state->timer, now_usec, timestamp);
-        }
     }
 
     return RX_OK;
@@ -450,16 +469,143 @@ int nan_rx_beacon(struct buf *frame, struct nan_state *state,
 int nan_rx_service_discovery(struct buf *frame, struct nan_state *state,
                              const struct ether_addr *destination_address,
                              const struct ether_addr *cluster_id,
-                             const struct nan_peer *peer)
+                             struct nan_peer *peer, uint64_t now_usec)
 {
     (void)state;
     (void)cluster_id;
+
+    if (peer->forward)
+    {
+        struct nan_peer *target_peer = NULL;
+        if (ether_addr_equal(destination_address, &NAN_NETWORK_ID))
+        {
+            LIST_FIND(state->peers.peers, target_peer,
+                      !ether_addr_equal(&target_peer->addr, &peer->addr));
+        }
+        else
+        {
+            LIST_FIND(state->peers.peers, target_peer,
+                      ether_addr_equal(&target_peer->addr, destination_address));
+        }
+
+        if (target_peer != NULL && circular_buf_empty(target_peer->frame_buffer))
+        {
+            struct buf *frame_copy = buf_new_copy(buf_data(frame), buf_size(frame));
+            struct buf *frame_forward = buf_new_owned(buf_size(frame));
+
+            // Strip radiotap header from frame copy
+            ieee80211_parse_radiotap_header(frame_copy, NULL, NULL, NULL);
+
+            // Add radiotap header to forwarded frame
+            struct ieee80211_state ieee80211_state = {.fcs = true};
+            ieee80211_add_radiotap_header(frame_forward, &ieee80211_state);
+
+            // Copy ieee80211 header
+            //struct ieee80211_hdr *ieee80211 = (struct ieee80211_hdr *)buf_current(frame_copy);
+            //ieee80211->addr2 = state->self_address;
+            write_bytes(frame_forward, buf_current(frame_copy), sizeof(struct ieee80211_hdr));
+            buf_advance(frame_copy, sizeof(struct ieee80211_hdr));
+
+            // Copy sdf header
+            write_bytes(frame_forward, buf_current(frame_copy), sizeof(struct nan_service_discovery_frame));
+            buf_advance(frame_copy, sizeof(struct nan_service_discovery_frame));
+
+            // Use vendor specific attribute to mark frame as forwarded
+            if (*buf_current(frame_copy) != VENDOR_SPECIFIC_ATTRIBUTE)
+            {
+                write_u8(frame_forward, VENDOR_SPECIFIC_ATTRIBUTE);
+                write_le16(frame_forward, 3);
+                write_bytes(frame_forward, (uint8_t *)&((struct oui){{0xa2, 0xdf, 0xff}}), 3);
+
+                int result;
+                NAN_ITERATE_ATTRIBUTES(frame_copy, {
+                    switch (attribute_id)
+                    {
+                    case SERVICE_DESCRIPTOR_ATTRIBUTE:
+                    {
+                        struct nan_service_descriptor_attribute *attribute =
+                            malloc(sizeof(struct nan_service_descriptor_attribute));
+
+                        write_u8(frame_forward, attribute_id);
+                        write_le16(frame_forward, attribute_length);
+
+                        // copy service id, instance id, requestor instance id, control
+                        write_bytes(frame_forward, buf_current(attribute_buf), NAN_SERVICE_ID_LENGTH + 3);
+
+                        // read control
+                        buf_advance(attribute_buf, NAN_SERVICE_ID_LENGTH + 2);
+                        read_u8(attribute_buf, (uint8_t *)&attribute->control);
+
+                        if (attribute->control.binding_bitmap_present)
+                        {
+                            write_bytes(frame_forward, buf_current(attribute_buf), 2);
+                            buf_advance(attribute_buf, 2);
+                        }
+
+                        if (attribute->control.matching_filter_present)
+                        {
+                            uint8_t length;
+                            read_u8(attribute_buf, &length);
+
+                            write_u8(frame_forward, length);
+                            write_bytes(frame_forward, buf_current(attribute_buf), length);
+                            buf_advance(attribute_buf, length);
+                        }
+
+                        if (attribute->control.service_response_filter_present)
+                        {
+                            uint8_t length;
+                            read_u8(attribute_buf, &length);
+
+                            write_u8(frame_forward, length);
+                            write_bytes(frame_forward, buf_current(attribute_buf), length);
+                            buf_advance(attribute_buf, length);
+                        }
+
+                        if (attribute->control.service_info_present)
+                        {
+                            uint8_t length = 0;
+                            char *message;
+                            read_u8(attribute_buf, &length);
+                            read_bytes(attribute_buf, (const uint8_t **)&message, length);
+
+                            if (peer->modify)
+                            {
+                                write_u8(frame_forward, 7);
+                                write_bytes(frame_forward, (uint8_t *)"#0000ff", 7);
+                            }
+                            else
+                            {
+                                write_u8(frame_forward, length);
+                                write_bytes(frame_forward, (const uint8_t *)message, length);
+                            }
+                        }
+
+                        free(attribute);
+                        break;
+                    }
+                    default:
+                        result = RX_IGNORE;
+                    }
+                });
+
+                ieee80211_add_fcs(frame_forward);
+
+                if (circular_buf_put(target_peer->frame_buffer, frame_forward) < 0)
+                {
+                    log_warn("Could not add frame to circular buffer");
+                    buf_free(frame_forward);
+                    return -1;
+                }
+            }
+        }
+    }
 
     list_t service_descriptors = list_init();
     list_t service_descriptor_extensions = list_init();
     int result = 0;
 
-    NAN_ITERATE_ATTRIBUTES({
+    NAN_ITERATE_ATTRIBUTES(frame, {
         switch (attribute_id)
         {
         case SERVICE_DESCRIPTOR_ATTRIBUTE:
@@ -484,11 +630,21 @@ int nan_rx_service_discovery(struct buf *frame, struct nan_state *state,
     struct nan_service_descriptor_attribute *service_descriptor;
     LIST_FOR_EACH(
         service_descriptors, service_descriptor, {
+            if (service_descriptor->control.service_control_type == PUBLISHED && !peer->publisher)
+            {
+                peer->publisher = true;
+                log_debug("Publisher: %s", ether_addr_to_string(&peer->addr));
+            }
+
             log_trace("Received service discovery for %u of type %d",
                       nan_service_id_to_string(&service_descriptor->service_id),
                       service_descriptor->control.service_control_type);
             nan_handle_received_service_discovery(&state->services, &state->events, &state->interface_address,
                                                   &peer->addr, destination_address, service_descriptor);
+
+            if (service_descriptor->control.service_control_type == CONTROL_TYPE_FOLLOW_UP) {
+                peer->last_follow_up_time = now_usec;
+            }
         })
 
     list_free(service_descriptors, true);
@@ -512,29 +668,33 @@ int nan_rx_action(struct buf *frame, struct nan_state *state,
         return RX_IGNORE_OUI;
 
     struct nan_peer *peer = NULL;
-    enum peer_status status = PEER_MISSING;
-
-    status = nan_peer_add(&state->peers, source_address, cluster_id, now_usec);
-    if (status < 0)
+    enum peer_status peer_status = nan_peer_add(&state->peers, source_address, cluster_id, now_usec);
+    if (peer_status < 0)
     {
-        log_warn("nan_action: could not add peer: %s (%d)", ether_addr_to_string(source_address), status);
-        return RX_IGNORE;
-    }
-    if (status == PEER_OK)
-        log_debug("nan_action: peer added %s", ether_addr_to_string(source_address));
-
-    status = nan_peer_get(&state->peers, source_address, &peer);
-    if (status < 0 || peer == NULL)
-    {
-        log_warn("nan_action: could not get peer: %s (%d)", ether_addr_to_string(source_address), status);
+        log_warn("nan_action: could not add peer: %s (%d)", ether_addr_to_string(source_address), peer_status);
         return RX_IGNORE;
     }
 
-    if (action_frame->oui_type == NAN_OUT_TYPE_SERVICE_DISCOVERY)
+    nan_peer_get(&state->peers, source_address, &peer);
+    if (peer == NULL)
+    {
+        log_warn("nan_action: could not get peer: %s (%d)", ether_addr_to_string(source_address), peer_status);
+        return RX_IGNORE;
+    }
+
+    if (peer_status == PEER_ADD)
+    {
+        nan_timer_state_init(&peer->timer, state->timer.base_time_usec, state->timer.average_error_state);
+        nan_timer_state_init(&peer->old_timer, state->timer.base_time_usec, state->timer.average_error_state);
+
+        log_debug("peer init %s %p", ether_addr_to_string(&peer->addr), peer->timer.average_error_state);
+    }
+
+    if (action_frame->oui_type == NAN_OUI_TYPE_SERVICE_DISCOVERY)
     {
         // service discovery frame is just one byte shorter than action frame
         buf_advance(frame, sizeof(struct nan_service_discovery_frame));
-        return nan_rx_service_discovery(frame, state, destination_address, cluster_id, peer);
+        return nan_rx_service_discovery(frame, state, destination_address, cluster_id, peer, now_usec);
     }
     if (action_frame->oui_type != NAN_OUI_TYPE_ACTION)
     {

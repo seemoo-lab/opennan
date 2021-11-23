@@ -143,9 +143,12 @@ struct ieee80211_hdr
 {
     uint16_t frame_control;
     uint16_t duration_id;
-    struct ether_addr addr1; /* dst */
-    struct ether_addr addr2; /* src */
-    struct ether_addr addr3; /* bssid */
+    /* dst */
+    struct ether_addr addr1;
+    /* src */
+    struct ether_addr addr2;
+    /* bssid */
+    struct ether_addr addr3;
     uint16_t seq_ctrl;
 } __attribute__((__packed__));
 
@@ -163,7 +166,7 @@ int ieee80211_channel_to_frequency(int chan);
 int ieee80211_frequency_to_channel(int freq);
 
 void ieee80211_add_nan_header(struct buf *buf, const struct ether_addr *src, const struct ether_addr *dst,
-                             const struct ether_addr *bssid, struct ieee80211_state *state, const uint16_t type);
+                              const struct ether_addr *bssid, struct ieee80211_state *state, const uint16_t type);
 
 void ieee80211_add_radiotap_header(struct buf *buf, const struct ieee80211_state *state);
 int ieee80211_parse_radiotap_header(struct buf *frame, signed char *rssi, uint8_t *flags, uint64_t *tsft);

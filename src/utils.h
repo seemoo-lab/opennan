@@ -12,8 +12,10 @@
 #define USEC_TO_TU(usec) (usec) / 1024
 #define TU_TO_USEC(tu) (tu) * 1024
 
-#define USEC_TO_SEC(usec) usec / 1000000
-#define SEC_TO_USEC(sec) sec * 1000000
+#define USEC_TO_SEC(usec) (usec) / 1000000
+#define SEC_TO_USEC(sec) (sec) * 1000000
+
+#define min(a, b) a < b ? a : b
 
 void print_frame(const uint8_t *frame, const size_t length, FILE *fp);
 

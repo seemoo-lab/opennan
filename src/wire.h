@@ -160,7 +160,6 @@ int buf_take(struct buf *buf, size_t length);
  */
 void buf_resize(struct buf *buf, size_t size);
 
-
 /**
  * Write an unsigned byte to a buffer. 
  * Sets the error flag if buffer capacity is exceeded.

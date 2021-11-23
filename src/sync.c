@@ -51,7 +51,7 @@ bool nan_is_same_master_rank_issuer(const uint64_t master_rank1, const uint64_t 
     return nan_is_master_rank_issuer(nan_get_address_from_master_rank(&master_rank1), master_rank2);
 }
 
-bool nan_is_anchor_master(const struct nan_sync_state *state, const struct ether_addr *addr)
+bool nan_is_anchor_master(const struct nan_sync_state *state, const struct ether_addr* addr)
 {
     return nan_is_master_rank_issuer(addr, state->anchor_master_rank);
 }
@@ -59,7 +59,7 @@ bool nan_is_anchor_master(const struct nan_sync_state *state, const struct ether
 bool nan_is_anchor_master_self(const struct nan_sync_state *state)
 {
     return nan_is_same_master_rank_issuer(state->master_rank,
-                                          state->anchor_master_rank);
+                                      state->anchor_master_rank);
 }
 
 struct ether_addr *nan_get_anchor_master_address(const struct nan_sync_state *state)
@@ -103,25 +103,23 @@ void nan_check_master_candidate(const struct nan_sync_state *state, struct nan_p
         peer->master_candidate = true;
 }
 
-void nan_master_election(struct nan_sync_state *state, const list_t peers, const uint64_t now_usec)
+void nan_master_election(struct nan_sync_state *state, const list_t peers,
+                         const struct nan_timer_state *timer, const uint64_t now_usec)
 {
     struct nan_peer *peer;
     int count_higher_mr = 0;
+    int count_master_candidate = 0;
     int count_rssi_close = 0;
     int count_rssi_middle = 0;
     int count_rssi_close_higher_mr = 0;
+    int count_rssi_close_lower_mr = 0;
     int count_rssi_close_master_candidate = 0;
     int count_rssi_middle_higher_mr = 0;
+    int count_rssi_middle_lower_mr = 0;
     int count_rssi_middle_master_candidate = 0;
 
-    LIST_FOR_EACH(peers, peer, {
+    LIST_FILTER_FOR_EACH(peers, peer, nan_timer_in_current_dw(timer, now_usec, peer->last_update), {
         uint64_t peer_master_rank = nan_get_peer_master_rank(peer);
-
-        // Asume currently at the end of a DW
-        // Check if last update was in the current DW plus 4 TU guard
-        log_debug("%d", USEC_TO_TU(now_usec - peer->last_update));
-        if (now_usec - peer->last_update > TU_TO_USEC(NAN_DW_LENGTH_TU + 4)) 
-            continue;
 
         if (peer->rssi_average > RSSI_CLOSE)
         {
@@ -129,6 +127,8 @@ void nan_master_election(struct nan_sync_state *state, const list_t peers, const
 
             if (peer_master_rank > state->master_rank)
                 count_rssi_close_higher_mr++;
+            else
+                count_rssi_close_lower_mr++;
 
             if (peer->master_candidate)
                 count_rssi_close_master_candidate++;
@@ -140,6 +140,8 @@ void nan_master_election(struct nan_sync_state *state, const list_t peers, const
 
             if (peer_master_rank > state->master_rank)
                 count_rssi_middle_higher_mr++;
+            else
+                count_rssi_middle_lower_mr++;
 
             if (peer->master_candidate)
                 count_rssi_middle_master_candidate++;
@@ -147,6 +149,9 @@ void nan_master_election(struct nan_sync_state *state, const list_t peers, const
 
         if (peer_master_rank > state->master_rank)
             count_higher_mr++;
+
+        if (peer->master_candidate)
+            count_master_candidate++;
     })
 
     if (state->role == MASTER)
@@ -181,7 +186,12 @@ void nan_master_election(struct nan_sync_state *state, const list_t peers, const
     else
     {
         // non-sync -> sync
-        if (count_rssi_close_master_candidate == 0 && count_rssi_middle_master_candidate < 3)
+        if (count_rssi_close == 0 && count_master_candidate >= 1)
+        {
+            log_debug("master election: transition from non-sync to sync");
+            state->role = SYNC;
+        }
+        if (count_rssi_middle <= 3 && count_master_candidate >= 1)
         {
             log_debug("master election: transition from non-sync to sync");
             state->role = SYNC;

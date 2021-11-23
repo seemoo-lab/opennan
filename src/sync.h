@@ -104,9 +104,11 @@ void nan_check_master_candidate(const struct nan_sync_state *state, struct nan_p
  * 
  * @param state - The current sync state
  * @param peers - The list of known peers
+ * @param timer - The current timer
  * @param now_usec - The current time in microseconds
  */
-void nan_master_election(struct nan_sync_state *state, const list_t peers, const uint64_t now_usec);
+void nan_master_election(struct nan_sync_state *state, const list_t peers,
+                         const struct nan_timer_state *timer, const uint64_t now_usec);
 
 /**
  * Get the address of the peer that has issued the master rank

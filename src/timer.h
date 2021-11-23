@@ -31,7 +31,7 @@ struct nan_timer_state
     bool initial_scan_done;
 
     int average_error;
-    moving_average_t average_error_state;
+    moving_average_t *average_error_state;
 };
 
 /**
@@ -40,7 +40,8 @@ struct nan_timer_state
  * @param state - The timer state to initialize
  * @param now_usec - The current time in miliseconds
  */
-void nan_timer_state_init(struct nan_timer_state *state, const uint64_t now_usec);
+void nan_timer_state_init(struct nan_timer_state *state, const uint64_t now_usec,
+                          moving_average_t *moving_average_state);
 
 /**
  * Get the synchronized time value in microseconds.

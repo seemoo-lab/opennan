@@ -11,6 +11,7 @@
 #include <list.h>
 #include <service.h>
 #include <tx.h>
+#include <timer.h>
 
 void nan_cmd_print_help()
 {
@@ -19,23 +20,26 @@ void nan_cmd_print_help()
     log_info(" * help                                Prints this message");
     log_info("");
     log_info("Info");
-    log_info(" * device                              Prints current device state");
-    log_info(" * sync                                Prints current sync state");
-    log_info(" * peers                               Prints list of added peers");
-    log_info(" * services [pub, sub]                 Prints list of PUBlished and/or SUBscribed services");
+    log_info(" * device                                  Prints current device state");
+    log_info(" * sync                                    Prints current sync state");
+    log_info(" * peers                                   Prints list of added peers");
+    log_info(" * services [pub, sub]                     Prints list of PUBlished and/or SUBscribed services");
     log_info("");
     log_info("Action");
-    log_info(" * publish %%service_name%%            Publish a service with the given name");
-    log_info(" * subscribe %%service_name%%          Subscribe for a service with the given name");
-    log_info(" * set mp %%value%%                    Set the master preference");
-    log_info(" * set rf %%value%%                    Set the random factor");
+    log_info(" * publish %%service_name%%                Publish a service with the given name");
+    log_info(" * subscribe %%service_name%%              Subscribe for a service with the given name");
+    log_info(" * set mp %%number%%                       Set the master preference");
+    log_info(" * set rf %%number%%                       Set the random factor");
+    log_info(" * set disc %%boolean%%                    Enable or disable transmission of discovery beacons");
     log_info("");
     log_info("Peer Action");
-    log_info(" * peer %%addr%% rm                    Remove peer");
+    log_info(" * peer %%addr%% set timer %%tu%%          Shift the timer value of a peer");
+    log_info(" * peer %%addr%% set counter %%number%%    Set transmission counter");
+    log_info(" * peer %%addr%% rm                        Remove peer");
     log_info("");
     log_info("Misc");
-    log_info(" * v+                                  Increase log verbosity");
-    log_info(" * v-                                  Decrease log verbosity");
+    log_info(" * v+                                      Increase log verbosity");
+    log_info(" * v-                                      Decrease log verbosity");
     log_info("--------------------------------------------------------------------");
     log_info("Submit empty line to redo last command (not supported for actions)");
     log_info("");
@@ -116,6 +120,8 @@ void nan_cmd_print_peers_info(const struct nan_state *state)
         log_info("Anchor Master Rank       %lu", peer->anchor_master_rank);
         log_info("AMBTT                    %u", peer->ambtt);
         log_info("Hop count to AM          %u", peer->hop_count);
+        log_info("");
+        log_info("Total shift              %d tu", peer->total_timer_shift_tu);
         log_info("");
         log_info("");
     });
@@ -326,6 +332,39 @@ void nan_cmd_set_value(struct nan_state *state, char *args)
         state->sync.master_preference = master_preference;
         nan_update_master_rank(&state->sync, &state->interface_address);
     }
+    else if (strcmp(target, "desync") == 0)
+    {
+        bool enable = (bool)atoi(value);
+
+        if (enable)
+        {
+            if (list_len(state->peers.peers) < 2)
+            {
+                log_error("Cannot enable desync with less than 2 known peers");
+                return;
+            }
+
+            struct nan_peer *peer;
+            LIST_FIND(state->peers.peers, peer,
+                      !nan_is_same_master_rank_issuer(state->sync.anchor_master_rank,
+                                                     peer->anchor_master_rank));
+            if (peer)
+            {
+                log_error("Cannot enable desync: Peer %s does not acknowledge us as anchor master",
+                          ether_addr_to_string(&peer->addr));
+                return;
+            }
+        }
+
+        struct nan_peer *peer;
+        LIST_FOR_EACH(state->peers.peers, peer, {
+            peer->timer.base_time_usec = state->timer.base_time_usec;
+            peer->old_timer.base_time_usec = state->timer.base_time_usec;
+        })
+
+        state->desync = enable;
+        log_info("%s desync", enable ? "Enabled" : "Disabled");
+    }
     else
     {
         log_warn("Unknown target for 'set' command: %s", target);
@@ -350,8 +389,25 @@ void nan_cmd_peer_set_value(struct nan_state *state, struct nan_peer *peer, char
     char *field = strtok(args, " ");
     char *value = strtok(NULL, " ");
 
-    log_warn("Unknown target for 'set_peer' command: %s", field);
-    return;
+    if (strcmp(field, "timer") == 0)
+    {
+        if (!validate_number(value))
+            return;
+
+        const int offset_tu = atoi(value);
+
+        peer->old_timer.base_time_usec = peer->timer.base_time_usec;
+        peer->timer.base_time_usec += TU_TO_USEC(offset_tu);
+
+        peer->old_timer_send_count = 0;
+        peer->total_timer_shift_tu += offset_tu;
+        log_info("Shifted timer of peer %s for %d tu", ether_addr_to_string(&peer->addr), offset_tu);
+    }
+    else
+    {
+        log_warn("Unknown target for 'set_peer' command: %s", field);
+        return;
+    }
 }
 
 void nan_cmd_peer(struct nan_state *state, char *args)
@@ -385,6 +441,35 @@ void nan_cmd_peer(struct nan_state *state, char *args)
         char *peer_addr_string = ether_addr_to_string(&peer->addr);
         nan_peer_remove(&state->peers, peer);
         log_info("Removed peer %s", peer_addr_string);
+    }
+    else if (strcmp(cmd, "ping") == 0)
+    {
+        char *message = cmd_args ? cmd_args : "#0000ff";
+
+        nan_publish(&state->services, "servicename", PUBLISH_UNSOLICITED, -1, message, strlen(message));
+        nan_add_event_listener(&state->events, EVENT_RECEIVE,
+                               "servicename", handle_event_receive, state);
+        log_info("Ping peer %s", ether_addr_to_string(&peer->addr));
+    }
+    else if (strcmp(cmd, "forward") == 0)
+    {
+        bool enable = (bool)atoi(cmd_args);
+
+        peer->forward = enable;
+
+        log_info("%s forward for peer %s",
+                 enable ? "Enabled" : "Disabled",
+                 ether_addr_to_string(&peer->addr));
+    }
+    else if (strcmp(cmd, "modify") == 0)
+    {
+        bool enable = (bool)atoi(cmd_args);
+
+        peer->modify = enable;
+
+        log_info("%s modify for peer %s",
+                 enable ? "Enabled" : "Disabled",
+                 ether_addr_to_string(&peer->addr));
     }
     else
     {

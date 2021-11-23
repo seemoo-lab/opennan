@@ -7,6 +7,8 @@
 #include <stdbool.h>
 
 #include "list.h"
+#include "timer.h"
+#include "circular_buffer.h"
 #include "moving_average.h"
 
 #define HOST_NAME_LENGTH_MAX 64
@@ -21,6 +23,15 @@
 #ifndef RSSI_MIDDLE
 #define RSSI_MIDDLE -75
 #endif
+
+#define MAX_SEND_COUNT 5
+
+#define nan_peer_use_old_timer(peer)   \
+    peer->old_timer_send_count >= 0 && \
+        peer->old_timer_send_count < peer->max_send_old_count
+
+#define nan_peer_should_send_discovery_beacon(peer, now_usec) \
+    peer->last_beacon_time > now_usec - TU_TO_USEC(50)
 
 struct nan_peer
 {
@@ -46,6 +57,20 @@ struct nan_peer
 
     bool availability_all_slots;
     list_t availability_entries;
+
+    struct nan_timer_state old_timer;
+    struct nan_timer_state timer;
+    int total_timer_shift_tu;
+    int max_send_old_count;
+    int old_timer_send_count;
+    uint64_t last_beacon_time;
+    uint64_t last_follow_up_time;
+
+    circular_buf_t frame_buffer;
+    bool forward;
+    bool modify;
+    bool publisher;
+    int count_sync;
 };
 
 struct nan_peer_availability_entry
@@ -113,7 +138,9 @@ enum peer_status nan_peer_get(struct nan_peer_state *state, const struct ether_a
  * Adds a peer to the storage if it is not already included
  */
 enum peer_status nan_peer_add(struct nan_peer_state *state, const struct ether_addr *addr,
-                              const struct ether_addr *cluster_id, uint64_t now);
+                              const struct ether_addr *cluster_id, const uint64_t now_usec);
+
+void nan_peer_remove(struct nan_peer_state *state, struct nan_peer *peer);
 
 /**
  * Remove the given peer from the list of known peers

@@ -127,6 +127,7 @@ struct nan_service *nan_service_new(
         service->service_specific_info = malloc(service_specific_info_length);
         service->service_specific_info_length = service_specific_info_length;
         memcpy(service->service_specific_info, service_specific_info, service_specific_info_length);
+        service->service_specific_info_length = service_specific_info_length;
     }
 
     return service;
@@ -301,7 +302,7 @@ void nan_handle_received_service_discovery(const struct nan_service_state *state
 
         if (service == NULL)
         {
-            log_error("Received subscribe service discovery frame for unknown service: %s",
+            log_trace("Received subscribe service discovery frame for unknown service: %s",
                       nan_service_id_to_string(&service_descriptor->service_id));
             return;
         }
@@ -336,8 +337,8 @@ void nan_handle_received_service_discovery(const struct nan_service_state *state
 
     else
     {
-        log_error("Received service discovery frame of unknown type '%d' for service: %s",
-                  service_descriptor->control.service_control_type, nan_service_id_to_string(&service_descriptor->service_id));
+        log_warn("Received service discovery frame of unknown type '%d' for service: %s",
+                 service_descriptor->control.service_control_type, nan_service_id_to_string(&service_descriptor->service_id));
     }
 }
 

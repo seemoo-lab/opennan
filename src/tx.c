@@ -9,6 +9,7 @@
 #include "log.h"
 #include "utils.h"
 #include "circular_buffer.h"
+#include "peer.h"
 
 bool nan_can_send_discovery_beacon(const struct nan_state *state, uint64_t now_usec)
 {
@@ -224,14 +225,19 @@ int nan_add_data_path_attribute(struct buf *buf, const struct nan_data_path *dat
 }
 
 void nan_add_beacon_header(struct buf *buf, struct nan_state *state, const enum nan_beacon_type type,
-                           uint8_t **data_length, const uint64_t now_usec)
+                           uint8_t **data_length, const uint64_t now_usec, const struct nan_peer *peer)
 {
+    const struct nan_timer_state *timer = peer != NULL ? &peer->timer : &state->timer;
+    const struct ether_addr *dest = peer != NULL
+                                        ? &peer->addr
+                                        : &NAN_BROADCAST_ADDRESS;
+
     ieee80211_add_radiotap_header(buf, &state->ieee80211);
-    ieee80211_add_nan_header(buf, &state->interface_address, &NAN_BROADCAST_ADDRESS, &state->cluster.cluster_id,
+    ieee80211_add_nan_header(buf, &state->interface_address, dest, &state->cluster.cluster_id,
                              &state->ieee80211, IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_BEACON);
 
     struct nan_beacon_frame *beacon_header = (struct nan_beacon_frame *)buf_current(buf);
-    uint64_t synced_time = nan_timer_get_synced_time_usec(&state->timer, now_usec);
+    uint64_t synced_time = nan_timer_get_synced_time_usec(timer, now_usec);
 
     beacon_header->time_stamp = htole64(synced_time);
     beacon_header->capability = htole16(0x0420);
@@ -251,10 +257,11 @@ void nan_add_beacon_header(struct buf *buf, struct nan_state *state, const enum 
 }
 
 void nan_build_beacon_frame(struct buf *buf, struct nan_state *state,
-                            const enum nan_beacon_type type, const uint64_t now_usec)
+                            const enum nan_beacon_type type, const uint64_t now_usec,
+                            struct nan_peer *peer)
 {
     uint8_t *data_length;
-    nan_add_beacon_header(buf, state, type, &data_length, now_usec);
+    nan_add_beacon_header(buf, state, type, &data_length, now_usec, peer);
 
     uint8_t attributes_length = 0;
     attributes_length += nan_add_master_indication_attribute(buf, state);
@@ -277,7 +284,7 @@ void nan_add_service_discovery_header(struct buf *buf, struct nan_state *state, 
     service_discovery_frame->category = IEEE80211_PUBLIC_ACTION_FRAME;
     service_discovery_frame->action = IEEE80211_PUBLIC_ACTION_FRAME_VENDOR_SPECIFIC;
     service_discovery_frame->oui = NAN_OUI;
-    service_discovery_frame->oui_type = NAN_OUT_TYPE_SERVICE_DISCOVERY;
+    service_discovery_frame->oui_type = NAN_OUI_TYPE_SERVICE_DISCOVERY;
 
     buf_advance(buf, sizeof(struct nan_service_discovery_frame));
 }
@@ -333,11 +340,33 @@ int nan_transmit(struct nan_state *state, const struct ether_addr *destination,
     if (state->ieee80211.fcs)
         ieee80211_add_fcs(buf);
 
-    if (circular_buf_put(state->buffer, (any_t)buf) < 0)
+    if (state->desync)
     {
-        log_warn("Could not add follow up frame to buffer");
-        return -1;
+        struct nan_peer *peer = NULL;
+        if (nan_peer_get(&state->peers, destination, &peer) < 0)
+        {
+            log_warn("Unknown peer %s", ether_addr_to_string(destination));
+            goto error;
+        }
+
+        if (circular_buf_put(peer->frame_buffer, buf) < 0)
+        {
+            log_warn("Could not add follow up frame to buffer");
+            goto error;
+        }
+    }
+    else
+    {
+        if (circular_buf_put(state->buffer, (any_t)buf) < 0)
+        {
+            log_warn("Could not add follow up frame to buffer");
+            goto error;
+        }
     }
 
     return 0;
+
+error:
+    buf_free(buf);
+    return -1;
 }

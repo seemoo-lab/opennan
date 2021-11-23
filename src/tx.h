@@ -8,6 +8,7 @@
 #include "frame.h"
 #include "service.h"
 #include "data_path.h"
+#include "peer.h"
 
 /**
  * Check if we are allowed to send a discovery beacon now.
@@ -69,7 +70,7 @@ int nan_add_data_path_attribute(struct buf *buf, const struct nan_data_path *dat
  * @returns The length of the written header in bytes
  */
 void nan_add_beacon_header(struct buf *buf, struct nan_state *state, const enum nan_beacon_type type,
-                           uint8_t **data_length, const uint64_t now_usec);
+                           uint8_t **data_length, const uint64_t now_usec, const struct nan_peer *peer);
 
 void nan_add_service_discovery_header(struct buf *buf, struct nan_state *state, const struct ether_addr *destination);
 
@@ -83,7 +84,8 @@ void nan_add_service_discovery_header(struct buf *buf, struct nan_state *state, 
  * @returns The length of the written frame in bytes
  */
 void nan_build_beacon_frame(struct buf *buf, struct nan_state *state,
-                            const enum nan_beacon_type type, const uint64_t now_usec);
+                            const enum nan_beacon_type type, const uint64_t now_usec,
+                            struct nan_peer *peer);
 
 void nan_build_service_discovery_frame(struct buf *buf, struct nan_state *state,
                                        const struct ether_addr *destination, const list_t announced_services);

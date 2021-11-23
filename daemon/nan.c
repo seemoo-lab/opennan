@@ -47,8 +47,11 @@ int main(int argc, char *argv[])
 	struct daemon_state state;
 	state.start_time_usec = clock_time_usec();
 
+	int attack_offset_tu = 0;
+	int max_send_old_count = 5;
+
 	int c;
-	while ((c = getopt(argc, argv, "vd::n:c:hMCU")) != -1)
+	while ((c = getopt(argc, argv, "vd::n:c:o:m:hMCU")) != -1)
 	{
 		switch (c)
 		{
@@ -68,6 +71,12 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 			channel = atoi(optarg);
+			break;
+		case 'o':
+			attack_offset_tu = atoi(optarg);
+			break;
+		case 'm':
+			max_send_old_count = atoi(optarg);
 			break;
 		case 'M':
 			state.io_state.no_monitor = true;
@@ -120,6 +129,9 @@ int main(int argc, char *argv[])
 		log_error("could not initialize core");
 		return EXIT_FAILURE;
 	}
+
+	state.nan_state.desync_offset_tu = attack_offset_tu;
+	state.nan_state.max_send_old_count = max_send_old_count;
 
 	printf("88b 88    db    88b 88\n"
 		   "88Yb88   dPYb   88Yb88\n"

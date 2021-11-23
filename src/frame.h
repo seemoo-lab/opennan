@@ -20,7 +20,7 @@
 #define NAN_CLUSTER_ID_BASE (struct ether_addr) {{ 0x50, 0x6f, 0x9a, 0x01, 0x00, 0x00 }}
 #define NAN_OUI (struct oui) {{ 0x50, 0x6f, 0x9a }}
 #define NAN_OUI_TYPE_BEACON 0x13
-#define NAN_OUT_TYPE_SERVICE_DISCOVERY 0x13
+#define NAN_OUI_TYPE_SERVICE_DISCOVERY 0x13
 #define NAN_OUI_TYPE_ACTION 0x18
 
 enum nan_beacon_type

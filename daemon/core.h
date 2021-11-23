@@ -16,6 +16,11 @@ struct ev_state
     ev_timer discovery_window;
     ev_timer discovery_window_end;
     ev_timer clean_peers;
+    ev_timer desync_enable;
+    ev_timer desync_offset;
+    ev_timer desync_success;
+    ev_timer desync_mitm;
+    ev_timer timeout;
     ev_io read_stdin;
     ev_io read_wlan;
     ev_io read_host;

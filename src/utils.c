@@ -48,7 +48,7 @@ char *ether_addr_to_string(const struct ether_addr *addr)
 char *ipv6_addr_to_string(const struct in6_addr *ipv6_addr)
 {
     static char buf[41];
-    sprintf(buf, "%.4x:%.4x:%.4x:%.4x:%.4x:%.4x:%.4x:%.4x:",
+    sprintf(buf, "%.4x:%.4x:%.4x:%.4x:%.4x:%.4x:%.4x:%.4x",
             ipv6_addr->s6_addr16[0], ipv6_addr->s6_addr16[1],
             ipv6_addr->s6_addr16[2], ipv6_addr->s6_addr16[3],
             ipv6_addr->s6_addr16[4], ipv6_addr->s6_addr16[5],
