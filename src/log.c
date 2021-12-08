@@ -106,7 +106,15 @@ int log_log(int level, const char *file, int line, const char *fmt, ...)
         return 0;
     }
 
-    char *striped_file = (char *)(strstr(file, "nan-linux") + strlen("nan-linux"));
+    const char *striped_file = strrchr(file, '/');
+    if (striped_file == NULL)
+    {
+        striped_file = file;
+    }
+    else
+    {
+        striped_file = striped_file + 1;
+    }
 
     /* Acquire lock */
     lock();
