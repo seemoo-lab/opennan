@@ -46,3 +46,5 @@ target_sources(nan PRIVATE
 target_include_directories(nan PRIVATE ${CMAKE_SOURCE_DIR}/radiotap)
 
 target_link_libraries(nan radiotap)
+
+install(TARGETS nan DESTINATION lib)
