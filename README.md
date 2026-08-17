@@ -77,4 +77,4 @@ For more detailed info on functions consult the corresponding header file.
 
 ## Acknowledgements
 We would like to thanks **Milan Stute** ([email](mailto:mstute@seemoo.tu-darmstadt.de), [web](https://seemoo.de/mstute))
-for providing [Open Wirless Link](https://owlink.org/). An open source AWDL implementation via that was of great use during the development of OpenNAN.
+for providing Open Wirless Link. An open source AWDL implementation via that was of great use during the development of OpenNAN.
