@@ -16,3 +16,5 @@ add_subdirectory(daemon)
 
 #add_subdirectory(googletest)
 #add_subdirectory(tests)
+
+install(TARGETS radiotap DESTINATION lib)
